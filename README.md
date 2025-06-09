@@ -1,0 +1,1 @@
+# Oracle-Data-Guard-19c-Setup-with-Data-Guard-Broker
