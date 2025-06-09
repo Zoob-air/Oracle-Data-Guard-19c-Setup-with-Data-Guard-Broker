@@ -1,5 +1,22 @@
 # Oracle Data Guard 19c Setup with Data Guard Broker
+- Standby Database with Different File Paths
 
+In this setup, the standby database uses different file locations than the primary database. This is useful when the folder structure or disk mount points on the standby server are not the same as on the primary.
+
+To handle this, we use these RMAN parameters during standby creation:
+
+  -  DB_FILE_NAME_CONVERT: Converts the primary datafile paths to the standby paths.
+
+  -  LOG_FILE_NAME_CONVERT: Converts the primary log file paths to the standby paths.
+
+  -  CONTROL_FILES, DB_CREATE_FILE_DEST, DB_RECOVERY_FILE_DEST: Set the location for control files, datafiles, and archived logs on the standby server.
+
+These settings allow Oracle to correctly place files during duplication and redo apply, even if the standby has a different directory layout. 
+
+**Author**: *Zubair OCP*
+**Date**: *2025-06-09*
+
+---
 ## 1. Listener Configuration (Primary & Standby)
 
 Edit `$ORACLE_HOME/network/admin/listener.ora` to define two listeners on both primary and standby hosts:
@@ -238,7 +255,3 @@ lsnrctl status LISTENER1528
 ```bash
 tnsping mydb_stb
 ```
-
----
-
-Dokumentasi ini ditujukan sebagai catatan setup ADG Oracle 19c menggunakan Data Guard Broker. Tambahan bisa dibuat untuk monitoring otomatis, backup konfigurasi broker, atau tuning performa.
