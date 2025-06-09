@@ -16,6 +16,7 @@ These settings allow Oracle to correctly place files during duplication and redo
 **Date**: *2025-06-09*
 
 ---
+
 ## 1. Listener Configuration (Primary & Standby)
 
 Edit `$ORACLE_HOME/network/admin/listener.ora` to define two listeners on both primary and standby hosts:
@@ -74,7 +75,26 @@ lsnrctl status
 lsnrctl status LISTENER1528
 ```
 
-## 4. Prepare Standby Directory Structure
+---
+
+## 4. Enable Archivelog Mode on Primary
+
+```sql
+sqlplus / as sysdba
+ARCHIVE LOG LIST;
+ALTER SYSTEM SET log_archive_dest_1='LOCATION=/oracle/archivelog' SCOPE=SPFILE;
+SHUTDOWN IMMEDIATE;
+STARTUP MOUNT;
+ALTER DATABASE ARCHIVELOG;
+ALTER DATABASE OPEN;
+ARCHIVE LOG LIST;
+
+ALTER SYSTEM SET STANDBY_FILE_MANAGEMENT=AUTO;
+```
+
+---
+
+## 5. Prepare Standby Directory Structure
 
 ```bash
 mkdir -p /oracle/product/db/orabase/oradata/mydb_stb/
@@ -91,7 +111,30 @@ chmod -R 750 /oracle/product/db/orabase/fast_recovery_area/MYDB_STB/
 chmod -R 750 /oracle/product/db/orabase/admin/mydb/adump/
 ```
 
-## 5. Duplicate Standby Database from Active Primary
+---
+
+## 6. Standby Server Setup
+
+### Prepare for Duplicate
+
+Create a parameter file for the standby database:
+
+```bash
+echo "*.db_name='mydb'" > /oracle/initstb.ora
+```
+
+Start the auxiliary instance on the standby server:
+
+```bash
+export ORACLE_SID=cdb1
+sqlplus / as sysdba
+
+SQL> STARTUP NOMOUNT PFILE='/oracle/initstb.ora';
+```
+
+---
+
+## 7. Duplicate Standby Database from Active Primary
 
 ```bash
 rman TARGET sys/oracle123@mydb_prd AUXILIARY sys/oracle123@mydb_stb
@@ -119,7 +162,9 @@ SPFILE
   NOFILENAMECHECK;
 ```
 
-## 6. Enable DG Broker Configuration
+---
+
+## 8. Enable DG Broker Configuration
 
 On both primary and standby:
 
@@ -151,9 +196,7 @@ SHOW DATABASE VERBOSE mydb;
 SHOW DATABASE VERBOSE mydb_stb;
 ```
 
-## 7. Check Redo Apply Status (Standby)
-
-Setelah konfigurasi DG Broker aktif, periksa apakah proses redo apply berjalan normal:
+## 9. Check Redo Apply Status (Standby)
 
 ```sql
 SELECT PROCESS, STATUS, THREAD#, SEQUENCE# 
@@ -161,12 +204,12 @@ FROM V$MANAGED_STANDBY
 WHERE PROCESS LIKE 'MRP%';
 ```
 
-* `MRP0` dengan status `APPLYING_LOG` menunjukkan apply berjalan.
-* Jika tidak muncul atau status `WAITING_FOR_LOG`, bisa jadi ada masalah transport atau gap.
+* `MRP0` with status `APPLYING_LOG` indicates apply is running.
+* If missing or status is `WAITING_FOR_LOG`, check transport or gap issues.
 
-Lanjutkan ke langkah berikut jika perlu melakukan switchover/failover.
+---
 
-## 8. Switchover & Failover (Optional)
+## 10. Switchover & Failover (Optional)
 
 Switchover:
 
@@ -174,7 +217,7 @@ Switchover:
 DGMGRL> SWITCHOVER TO mydb_stb;
 ```
 
-Failover (if needed):
+Failover:
 
 ```bash
 DGMGRL> FAILOVER TO mydb_stb;
@@ -182,7 +225,7 @@ DGMGRL> FAILOVER TO mydb_stb;
 
 ---
 
-## 9. Troubleshooting: Database Not Syncing or Gap Detected
+## 11. Troubleshooting: Database Not Syncing or Gap Detected
 
 ### a. Check DG Broker Configuration
 
@@ -193,16 +236,14 @@ dgmgrl> show database verbose mydb_stb;
 
 ### b. Check Alert Log & Standby Log
 
-* Cek `alert.log` di standby:
-
 ```bash
 tail -f $ORACLE_BASE/diag/rdbms/*/trace/alert_*.log
 ```
 
-* Periksa log file untuk error seperti:
+Check for errors like:
 
-  * ORA-16810 (standby not receiving redo)
-  * ORA-16724 (archival lag)
+* ORA-16810
+* ORA-16724
 
 ### c. Check Gap & Recovery Status
 
@@ -211,46 +252,37 @@ SELECT DEST_ID, STATUS, ERROR FROM V$ARCHIVE_DEST;
 SELECT THREAD#, LOW_SEQUENCE#, HIGH_SEQUENCE# FROM V$ARCHIVE_GAP;
 ```
 
-### d. Manual Archive Log Shipping (Jika Ada GAP)
-
-Jika perlu, salin archive log secara manual:
+### d. Manual Archive Log Shipping
 
 ```bash
 scp /oracle/archivelog/1_12345_*.arc standby:/oracle/archivelog/
 ```
-
-Lalu restore dan recover:
 
 ```sql
 ALTER DATABASE REGISTER LOGFILE '/oracle/archivelog/1_12345_*.arc';
 RECOVER MANAGED STANDBY DATABASE USING CURRENT LOGFILE DISCONNECT;
 ```
 
-### e. Pastikan FAL\_SERVER/FAL\_CLIENT sudah sesuai
+### e. FAL\_SERVER / FAL\_CLIENT Check
 
 ```sql
 SHOW PARAMETER fal;
 ```
 
-Harus menunjuk ke DB\_UNIQUE\_NAME dari sisi berlawanan.
-
-### f. Restart MRP Process
+### f. Restart MRP
 
 ```sql
 ALTER DATABASE RECOVER MANAGED STANDBY DATABASE CANCEL;
 ALTER DATABASE RECOVER MANAGED STANDBY DATABASE USING CURRENT LOGFILE DISCONNECT;
 ```
 
-### g. Periksa Network
-
-* Pastikan listener standby aktif:
+### g. Network Check
 
 ```bash
 lsnrctl status LISTENER1528
-```
-
-* Tes koneksi dari primary ke standby:
-
-```bash
 tnsping mydb_stb
 ```
+
+---
+
+This document is a simplified Oracle 19c Data Guard setup using Data Guard Broker with different file paths on standby and a dedicated listener on port 1528 for DG services.
